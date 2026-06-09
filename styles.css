@@ -596,8 +596,8 @@ h2 {
 .vas-marker {
   position: absolute;
   top: 50%;
-  width: 4px;
-  height: 32px;
+  width: 1px;
+  height: 16px;
   border-radius: 999px;
   background: var(--accent);
   box-shadow: 0 8px 16px rgba(15, 109, 112, 0.22);
