@@ -596,7 +596,7 @@ h2 {
 .vas-marker {
   position: absolute;
   top: 50%;
-  width: 1px;
+  width: 1.5px;
   height: 16px;
   border-radius: 999px;
   background: var(--accent);
