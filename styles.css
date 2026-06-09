@@ -596,12 +596,11 @@ h2 {
 .vas-marker {
   position: absolute;
   top: 50%;
-  width: 20px;
-  height: 20px;
+  width: 4px;
+  height: 32px;
   border-radius: 999px;
-  background: #ffffff;
-  border: 3px solid var(--accent);
-  box-shadow: 0 10px 22px rgba(15, 109, 112, 0.18);
+  background: var(--accent);
+  box-shadow: 0 8px 16px rgba(15, 109, 112, 0.22);
   transform: translate(-50%, -50%);
 }
 
