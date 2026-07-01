@@ -7,26 +7,39 @@ const STORAGE_KEYS = {
 const FLOW_STAGES = [
   { key: "intro", title: "基本情報", subtitle: "患者情報" },
   { key: "calibration", title: "校正", subtitle: "10cm 調整" },
-  { key: "vas", title: "VAS", subtitle: "5回評価" },
+  { key: "vas", title: "VAS", subtitle: "9回評価" },
 ];
 
 const PATTERN_DEFINITIONS = {
-  A: [3, 1, 4, 2],
-  B: [2, 4, 1, 3],
-  C: [4, 2, 3, 1],
-  D: [1, 3, 2, 4],
-  E: [3, 4, 2, 1],
-  F: [2, 1, 4, 3],
-  G: [4, 3, 1, 2],
-  H: [1, 4, 3, 2],
+  A: [3, 7, 1, 5, 2, 6, 4],
+  B: [6, 2, 4, 7, 1, 3, 5],
+  C: [1, 5, 7, 2, 6, 4, 3],
+  D: [4, 1, 6, 3, 7, 5, 2],
+  E: [7, 4, 2, 6, 3, 1, 5],
+  F: [2, 6, 5, 1, 4, 7, 3],
+  G: [5, 3, 6, 4, 1, 2, 7],
+  H: [6, 7, 3, 2, 5, 4, 1],
 };
 
-const CONTROL_EXPORT_KEY = "control";
+const PRE_KRAEPELIN_TIMEPOINTS = [
+  {
+    id: "aroma-a",
+    title: "香りA提示後",
+    exportKey: "aromaA",
+    csvPrefix: "A",
+  },
+  {
+    id: "aroma-b",
+    title: "香りB提示後",
+    exportKey: "aromaB",
+    csvPrefix: "B",
+  },
+];
 const CONDITION_EXPORT_KEYS = Array.from(
-  { length: 4 },
+  { length: 7 },
   (_item, index) => `condition${index + 1}`,
 );
-const DEFAULT_PATTERN_SEQUENCE = [1, 2, 3, 4];
+const DEFAULT_PATTERN_SEQUENCE = [1, 2, 3, 4, 5, 6, 7];
 
 const VAS_ITEMS = [
   {
@@ -98,6 +111,11 @@ const REACTION_TIME_MODALITIES = [
   { key: "visual", label: "視覚" },
   { key: "auditory", label: "聴覚" },
 ];
+const VAS_BASELINE_Y = 50;
+const VAS_BASELINE_TOUCH_TOLERANCE = 6;
+const VAS_BASELINE_CROSSING_ZONE = 8;
+const VAS_STROKE_VISIBLE_X_MIN = -12;
+const VAS_STROKE_VISIBLE_X_MAX = 112;
 
 const refs = {
   statusSummary: document.getElementById("statusSummary"),
@@ -170,13 +188,11 @@ function buildTimepoints(patternKey) {
   const sequence = PATTERN_DEFINITIONS[patternKey] || DEFAULT_PATTERN_SEQUENCE;
 
   return [
-    {
-      id: "control",
-      title: "コントロール",
-      exportKey: CONTROL_EXPORT_KEY,
+    ...PRE_KRAEPELIN_TIMEPOINTS.map((timepoint) => ({
+      ...timepoint,
       conditionNumber: 0,
       runNumber: 0,
-    },
+    })),
     ...sequence.map((conditionNumber, index) => ({
       id: `run${index + 1}`,
       title: `${index + 1}回目`,
@@ -188,9 +204,11 @@ function buildTimepoints(patternKey) {
 }
 
 function createAnswerStore() {
-  const answers = {
-    [CONTROL_EXPORT_KEY]: createAnswerEntry(),
-  };
+  const answers = {};
+
+  PRE_KRAEPELIN_TIMEPOINTS.forEach((timepoint) => {
+    answers[timepoint.exportKey] = createAnswerEntry();
+  });
 
   CONDITION_EXPORT_KEYS.forEach((key) => {
     answers[key] = createAnswerEntry();
@@ -449,8 +467,12 @@ function getCurrentProgressLabel(screen) {
   const timepoint = buildTimepoints(state.patternKey).find(
     (entry) => entry.id === screen.timepointId,
   );
-  if (!timepoint || timepoint.id === "control") {
-    return "コントロール";
+  if (!timepoint) {
+    return "未開始";
+  }
+
+  if (timepoint.runNumber === 0) {
+    return timepoint.title;
   }
 
   return String(timepoint.runNumber);
@@ -640,22 +662,38 @@ function renderVasSectionTitle() {
         <span class="question-number">1.</span>
         <span>VAS</span>
       </h3>
-      <p class="screen-copy helper-text">線をタップあるいはスライドして位置を決めてください。</p>
+      <p class="screen-copy helper-text">10cm の線に届くようにペンで印を 1 本引いてください。タップだけ、線に届かない印は記録されません。</p>
     </section>
   `;
 }
 
 function renderVasCard(exportKey, item) {
   const value = getStoredAnswer(exportKey, item.id);
+  const stroke = getStoredVasStroke(exportKey, item.id);
   const widthPx = getVasTrackWidthPx();
   const markerLeft = value == null ? 0 : value;
-  const opacity = value == null ? 0 : 1;
+  const markerOpacity = value == null || stroke.length ? 0 : 1;
+  const strokePoints = formatVasStrokePoints(stroke);
+  const answeredClass = value == null ? "" : " is-answered";
 
   return `
     <section class="vas-card">
-      <h3 class="question-title">
-        <span>${escapeHtml(item.prompt)}</span>
-      </h3>
+      <div class="vas-question-row">
+        <button
+          class="vas-admin-button"
+          type="button"
+          data-action="clear-vas"
+          data-export-key="${escapeAttribute(exportKey)}"
+          data-item-id="${escapeAttribute(item.id)}"
+          aria-label="管理者用: この線を消す"
+          title="管理者用: この線を消す"
+        >
+          ◼︎
+        </button>
+        <h3 class="question-title">
+          <span>${escapeHtml(item.prompt)}</span>
+        </h3>
+      </div>
 
       <div class="vas-track-wrap">
         <div
@@ -663,14 +701,20 @@ function renderVasCard(exportKey, item) {
           style="--vas-width: ${widthPx}px"
         >
           <div
-            class="vas-track"
+            class="vas-track${answeredClass}"
             data-export-key="${escapeAttribute(exportKey)}"
             data-item-id="${escapeAttribute(item.id)}"
           >
-            <div
-              class="vas-marker"
-              style="left: ${markerLeft}%; opacity: ${opacity}"
-            ></div>
+            <div class="vas-line-frame">
+              <div
+                class="vas-marker"
+                style="left: ${markerLeft}%; opacity: ${markerOpacity}"
+              ></div>
+              <svg class="vas-stroke-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <polyline class="vas-stroke-line" points="${escapeAttribute(strokePoints)}"></polyline>
+                <polyline class="vas-draft-line"></polyline>
+              </svg>
+            </div>
           </div>
           <div class="vas-label-row">
             <span>${escapeHtml(item.leftLabel)}</span>
@@ -774,7 +818,7 @@ function renderHistory() {
     .map((entry) => {
       const chips = [
         renderHistoryScoreChip("パターン", entry.patternKey || "-"),
-        renderHistoryScoreChip("完了", `${countCompletedTimepointsInRecord(entry)} / ${getTimepointCount()}`),
+        renderHistoryScoreChip("完了", `${countCompletedTimepointsInRecord(entry)} / ${getTimepointCount(entry.patternKey)}`),
       ].join("");
 
       return `
@@ -872,7 +916,19 @@ function handleViewClick(event) {
   if (action === "clear-vas") {
     const exportKey = button.dataset.exportKey;
     const itemId = button.dataset.itemId;
+    if (getStoredAnswer(exportKey, itemId) == null) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "管理者用の操作です。このVASの線を消して、もう一度入力できるようにしますか?",
+    );
+    if (!confirmed) {
+      return;
+    }
+
     delete state.answers[exportKey][itemId];
+    delete state.answers[exportKey][getVasStrokeKey(itemId)];
     persistDraft();
     renderCurrentScreen();
     renderStatus();
@@ -952,17 +1008,29 @@ function handlePointerDown(event) {
     return;
   }
 
+  const exportKey = track.dataset.exportKey;
+  const itemId = track.dataset.itemId;
+  if (getStoredAnswer(exportKey, itemId) != null) {
+    return;
+  }
+
   event.preventDefault();
   vasPointerState = {
     pointerId: event.pointerId,
     track,
+    startX: event.clientX,
+    startY: event.clientY,
+    currentX: event.clientX,
+    currentY: event.clientY,
+    hasStroke: false,
+    points: [],
   };
 
   if (track.setPointerCapture) {
     track.setPointerCapture(event.pointerId);
   }
 
-  updateVasAnswerFromPointer(track, event);
+  updateVasDraftFromPointer(vasPointerState, event);
 }
 
 function handlePointerMove(event) {
@@ -975,7 +1043,7 @@ function handlePointerMove(event) {
     return;
   }
 
-  updateVasAnswerFromPointer(vasPointerState.track, event, false);
+  updateVasDraftFromPointer(vasPointerState, event);
 }
 
 function handlePointerEnd(event) {
@@ -994,38 +1062,246 @@ function handlePointerEnd(event) {
     return;
   }
 
-  updateVasAnswerFromPointer(vasPointerState.track, event);
+  updateVasDraftFromPointer(vasPointerState, event);
 
   if (vasPointerState.track.releasePointerCapture) {
     vasPointerState.track.releasePointerCapture(event.pointerId);
   }
 
+  if (vasPointerState.hasStroke) {
+    commitVasAnswerFromStroke(vasPointerState);
+  } else {
+    updateVasDraftLine(vasPointerState.track, []);
+  }
+
   vasPointerState = null;
 }
 
-function updateVasAnswerFromPointer(track, event, persist = true) {
-  const rect = track.getBoundingClientRect();
-  const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-  const value = Number((ratio * 100).toFixed(1));
+function updateVasDraftFromPointer(pointerState, event) {
+  pointerState.currentX = event.clientX;
+  pointerState.currentY = event.clientY;
+  const point = getVasStrokePoint(pointerState.track, event.clientX, event.clientY);
+  const previousPoint = pointerState.points[pointerState.points.length - 1];
+
+  const deltaX = pointerState.currentX - pointerState.startX;
+  const deltaY = pointerState.currentY - pointerState.startY;
+  const distance = Math.hypot(deltaX, deltaY);
+
+  if (!previousPoint || Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y) >= 0.6) {
+    pointerState.points.push(point);
+  }
+
+  pointerState.hasStroke = pointerState.hasStroke || distance >= 8;
+  updateVasDraftLine(pointerState.track, pointerState.hasStroke ? pointerState.points : []);
+}
+
+function commitVasAnswerFromStroke(pointerState) {
+  const track = pointerState.track;
+  const rawStroke = pointerState.points;
+  const stroke = simplifyVasStroke(rawStroke);
   const exportKey = track.dataset.exportKey;
   const itemId = track.dataset.itemId;
 
-  state.answers[exportKey][itemId] = value;
-  updateVasMarker(track, exportKey, itemId, value);
-
-  if (persist) {
-    persistDraft();
-    renderStatus();
+  if (getStoredAnswer(exportKey, itemId) != null) {
+    updateVasDraftLine(track, []);
+    return;
   }
+
+  if (!doesVasStrokeReachBaseline(rawStroke) || doesVasStrokeClearlyCrossBaselineTwice(rawStroke)) {
+    rejectVasStroke(track);
+    return;
+  }
+
+  const value = getVasValueFromStroke(stroke);
+  state.answers[exportKey][itemId] = value;
+  state.answers[exportKey][getVasStrokeKey(itemId)] = stroke;
+  updateVasMarker(track, value, Boolean(stroke.length));
+  updateVasLine(track, ".vas-stroke-line", stroke);
+  updateVasDraftLine(track, []);
+  persistDraft();
+  renderCurrentScreen();
+  renderStatus();
 }
 
-function updateVasMarker(track, exportKey, itemId, value) {
+function getVasStrokePoint(track, clientX, clientY) {
+  const frame = track.querySelector(".vas-line-frame");
+  const rect = (frame || track).getBoundingClientRect();
+  return {
+    x: Number(
+      clamp(
+        ((clientX - rect.left) / rect.width) * 100,
+        VAS_STROKE_VISIBLE_X_MIN,
+        VAS_STROKE_VISIBLE_X_MAX,
+      ).toFixed(2),
+    ),
+    y: Number((clamp((clientY - rect.top) / rect.height, 0, 1) * 100).toFixed(2)),
+  };
+}
+
+function getVasValueFromStroke(points) {
+  const contactXs = getVasBaselineContactXs(points, 18);
+  const total = contactXs.reduce((sum, x) => sum + x, 0);
+  return Number(clamp(total / contactXs.length, 0, 100).toFixed(1));
+}
+
+function doesVasStrokeReachBaseline(points) {
+  return getVasBaselineContactXs(points, VAS_BASELINE_TOUCH_TOLERANCE).length > 0;
+}
+
+function doesVasStrokeClearlyCrossBaselineTwice(points) {
+  let previousSide = getVasBaselineSide(points[0]);
+  let crossingCount = 0;
+
+  for (let index = 1; index < points.length; index += 1) {
+    const currentSide = getVasBaselineSide(points[index]);
+
+    if (currentSide === 0) {
+      continue;
+    }
+
+    if (previousSide !== 0 && currentSide !== previousSide) {
+      crossingCount += 1;
+    }
+
+    previousSide = currentSide;
+
+    if (crossingCount >= 2) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getVasBaselineSide(point) {
+  if (!point) {
+    return 0;
+  }
+
+  if (point.y < VAS_BASELINE_Y - VAS_BASELINE_CROSSING_ZONE) {
+    return -1;
+  }
+
+  if (point.y > VAS_BASELINE_Y + VAS_BASELINE_CROSSING_ZONE) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function isPointOnVasLine(point, yTolerance) {
+  return (
+    point.x >= 0 &&
+    point.x <= 100 &&
+    Math.abs(point.y - VAS_BASELINE_Y) <= yTolerance
+  );
+}
+
+function getVasBaselineIntersectionX(pointA, pointB) {
+  const deltaY = pointB.y - pointA.y;
+
+  if (deltaY === 0) {
+    return null;
+  }
+
+  const crossesBaseline =
+    (pointA.y < VAS_BASELINE_Y && pointB.y > VAS_BASELINE_Y) ||
+    (pointA.y > VAS_BASELINE_Y && pointB.y < VAS_BASELINE_Y);
+
+  if (!crossesBaseline) {
+    return null;
+  }
+
+  const ratio = (VAS_BASELINE_Y - pointA.y) / deltaY;
+  const x = pointA.x + (pointB.x - pointA.x) * ratio;
+  return x >= 0 && x <= 100 ? x : null;
+}
+
+function getVasBaselineContactXs(points, yTolerance) {
+  if (!points.length) {
+    return [];
+  }
+
+  const contactXs = points
+    .filter((point) => isPointOnVasLine(point, yTolerance))
+    .map((point) => point.x);
+
+  points.forEach((point, index) => {
+    if (index === 0) {
+      return;
+    }
+
+    const x = getVasBaselineIntersectionX(points[index - 1], point);
+    if (x != null) {
+      contactXs.push(x);
+    }
+  });
+
+  return contactXs;
+}
+
+function rejectVasStroke(track) {
+  updateVasDraftLine(track, []);
+  track.classList.add("is-invalid");
+  window.setTimeout(() => {
+    track.classList.remove("is-invalid");
+  }, 520);
+}
+
+function simplifyVasStroke(points) {
+  if (points.length <= 24) {
+    return points;
+  }
+
+  const step = (points.length - 1) / 23;
+  return Array.from({ length: 24 }, (_item, index) => points[Math.round(index * step)]);
+}
+
+function getVasStrokeKey(itemId) {
+  return `${itemId}Stroke`;
+}
+
+function getStoredVasStroke(exportKey, itemId) {
+  const value = state.answers[exportKey]?.[getVasStrokeKey(itemId)];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((point) => ({
+      x: Number(point?.x),
+      y: Number(point?.y),
+    }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+}
+
+function updateVasMarker(track, value, hide = false) {
   const marker = track.querySelector(".vas-marker");
 
   if (marker) {
     marker.style.left = `${value}%`;
-    marker.style.opacity = "1";
+    marker.style.opacity = hide ? "0" : "1";
   }
+}
+
+function updateVasDraftLine(track, points) {
+  updateVasLine(track, ".vas-draft-line", points);
+}
+
+function updateVasLine(track, selector, points) {
+  const line = track.querySelector(selector);
+
+  if (line) {
+    line.setAttribute("points", formatVasStrokePoints(points));
+  }
+}
+
+function formatVasStrokePoints(points) {
+  if (!points.length) {
+    return "";
+  }
+
+  return points.map((point) => `${point.x},${point.y}`).join(" ");
 }
 
 function updateCalibrationFromPointer(surface, event, persist = true) {
@@ -1447,29 +1723,26 @@ function buildExportRow(record) {
 
 function buildSummaryVasHeaders() {
   return [
-    "B_threshold",
-    "B_favo",
-    "B_pungency",
-    "B_comfort",
-    "B_tiredness",
-    "B_concentrate",
-    "B_sleepiness",
-    "B_v_reactiontime",
-    "B_s_reactiontime",
-    ...Array.from({ length: 4 }, (_item, index) => {
-      const prefix = `C${index + 1}`;
-      return [
-        `${prefix}_threshold`,
-        `${prefix}_favo`,
-        `${prefix}_pungency`,
-        `${prefix}_comfort`,
-        `${prefix}_tiredness`,
-        `${prefix}_concentrate`,
-        `${prefix}_sleepiness`,
-        `${prefix}_v_reactiontime`,
-        `${prefix}_s_reactiontime`,
-      ];
+    ...PRE_KRAEPELIN_TIMEPOINTS.map((timepoint) => {
+      return buildSummaryVasHeadersForPrefix(timepoint.csvPrefix);
     }).flat(),
+    ...CONDITION_EXPORT_KEYS.map((_key, index) => {
+      return buildSummaryVasHeadersForPrefix(`C${index + 1}`);
+    }).flat(),
+  ];
+}
+
+function buildSummaryVasHeadersForPrefix(prefix) {
+  return [
+    `${prefix}_threshold`,
+    `${prefix}_favo`,
+    `${prefix}_pungency`,
+    `${prefix}_comfort`,
+    `${prefix}_tiredness`,
+    `${prefix}_concentrate`,
+    `${prefix}_sleepiness`,
+    `${prefix}_v_reactiontime`,
+    `${prefix}_s_reactiontime`,
   ];
 }
 
@@ -1483,7 +1756,7 @@ function buildSummaryVasValues(record) {
     "focus",
   ];
   const exportOrder = [
-    CONTROL_EXPORT_KEY,
+    ...PRE_KRAEPELIN_TIMEPOINTS.map((timepoint) => timepoint.exportKey),
     ...CONDITION_EXPORT_KEYS,
   ];
 

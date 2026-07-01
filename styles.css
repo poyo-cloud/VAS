@@ -550,8 +550,9 @@ h2 {
 }
 
 .vas-track-shell {
-  width: var(--vas-width);
+  width: calc(var(--vas-width) + (var(--vas-side-space) * 2));
   max-width: 100%;
+  --vas-side-space: 24px;
 }
 
 .calibration-surface,
@@ -578,12 +579,17 @@ h2 {
 }
 
 .vas-track {
-  width: var(--vas-width);
+  width: calc(var(--vas-width) + (var(--vas-side-space) * 2));
   max-width: 100%;
-  height: 38px;
+  height: 58px;
 }
 
-.vas-track::before {
+.vas-line-frame {
+  position: absolute;
+  inset: 0 var(--vas-side-space);
+}
+
+.vas-line-frame::before {
   content: "";
   position: absolute;
   inset: 50% 0 auto;
@@ -596,12 +602,56 @@ h2 {
 .vas-marker {
   position: absolute;
   top: 50%;
-  width: 1.5px;
-  height: 16px;
+  width: 2.5px;
+  height: 34px;
   border-radius: 999px;
   background: var(--accent);
   box-shadow: 0 8px 16px rgba(15, 109, 112, 0.22);
   transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.vas-stroke-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.vas-stroke-line,
+.vas-draft-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 0.5mm;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.vas-draft-line {
+  opacity: 0.55;
+}
+
+.vas-track.is-answered .vas-line-frame::before {
+  background: rgba(34, 28, 22, 0.72);
+}
+
+.vas-track.is-invalid .vas-line-frame::before {
+  animation: vas-invalid-pulse 0.52s ease;
+}
+
+@keyframes vas-invalid-pulse {
+  0%,
+  100% {
+    background: rgba(34, 28, 22, 0.88);
+  }
+
+  35% {
+    background: var(--danger);
+  }
 }
 
 .calibration-readout,
@@ -619,11 +669,42 @@ h2 {
   color: var(--accent-strong);
 }
 
+.vas-question-row {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  align-items: start;
+  gap: 10px;
+}
+
+.vas-admin-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid rgba(73, 59, 42, 0.18);
+  border-radius: 6px;
+  color: rgba(34, 28, 22, 0.66);
+  background: rgba(255, 252, 247, 0.72);
+  line-height: 1;
+  box-shadow: none;
+}
+
+.vas-admin-button:hover,
+.vas-admin-button:focus-visible {
+  color: var(--danger);
+  border-color: rgba(165, 61, 61, 0.34);
+  background: rgba(165, 61, 61, 0.08);
+  outline: none;
+}
+
 .vas-label-row {
   display: flex;
   justify-content: space-between;
   width: var(--vas-width);
   max-width: 100%;
+  margin-inline: auto;
   gap: 12px;
   font-size: clamp(0.72rem, 1.4vw, 0.86rem);
   color: var(--muted);
@@ -641,10 +722,6 @@ h2 {
 
 .vas-label-row span:last-child {
   text-align: right;
-}
-
-.vas-clear {
-  justify-self: start;
 }
 
 .result-grid {
