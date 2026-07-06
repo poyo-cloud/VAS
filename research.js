@@ -1,4 +1,4 @@
-const APP_VERSION = "1.13.2";
+const APP_VERSION = "1.14.3";
 const STORE_KEY = "research-vas-mvp-v1";
 const now = () => new Date().toISOString();
 const uid = prefix => `${prefix}_${Date.now().toString(36)}_${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
@@ -87,6 +87,7 @@ function saveActiveEditorBeforeNavigation(){
 }
 function fmt(date){ return date ? new Date(date).toLocaleString("ja-JP") : "—"; }
 function slug(value){ return String(value).trim().replace(/[\\/:*?"<>|]/g,"_").replace(/\s+/g,"_") || "untitled"; }
+function dataSectionIcon(){return `<svg class="data-section-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3"></ellipse><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"></path><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"></path></svg>`}
 
 document.addEventListener("click", event => {
   if(Date.now()<suppressClickUntil){event.preventDefault();return}
@@ -280,9 +281,9 @@ function animateSortShift(container,mutate,placeholder=null){
 
 function render(){
   const p=project();
-  const sectionNames={settings:"プロジェクト情報",conditions:"条件・刺激",vas:"VAS項目",patterns:"パターン",sessions:"実験・データ"};
+  const sectionNames={settings:"プロジェクト情報",conditions:"条件・刺激",vas:"VAS項目",patterns:"パターン",sessions:"実験"};
   const sectionName=sectionNames[route.tab];
-  const hasProjectSubnav=route.page==="project"&&p&&["settings","conditions","vas","patterns"].includes(route.tab);
+  const hasProjectSubnav=route.page==="project"&&p&&["sessions","settings","conditions","vas","patterns"].includes(route.tab);
   nav.innerHTML = p ? `
     <div class="breadcrumb" aria-label="現在位置">
       <button data-action="home">プロジェクト一覧</button>
@@ -314,7 +315,7 @@ function renderProjects(){
     </div>
     <div><p class="meta">更新 ${fmt(p.updated_at)}</p><h2>${esc(p.project_name)}</h2><p class="muted">${esc(p.description||"説明なし")}</p></div>
     <div class="meta">条件 ${p.conditions.length} · VAS ${p.vas_items.length} · パターン ${p.patterns.length}</div>
-    <div class="actions project-card-actions"><button class="btn" data-action="open-data" data-id="${p.project_id}">実験・データ</button><button class="btn secondary" data-action="open-project" data-id="${p.project_id}">設定</button></div>
+    <div class="actions project-card-actions"><button class="btn data-section-button" data-action="open-data" data-id="${p.project_id}">${dataSectionIcon()}<span>実験</span></button><button class="btn secondary" data-action="open-project" data-id="${p.project_id}">設定</button></div>
   </article>`).join("")}<button class="add-tile" type="button" data-action="new-project" aria-label="プロジェクトを追加"><span>＋</span></button></div>`;
 }
 
@@ -350,6 +351,7 @@ function renderProject(){
 }
 function projectSubnav(){
   return `<div class="project-subnav" role="navigation" aria-label="プロジェクト内メニュー">
+    <button data-action="tab" data-tab="sessions" class="data-section-button experiment-start-tab ${route.tab==="sessions"?"active":""}">${dataSectionIcon()}<span>実験</span></button>
     <button data-action="tab" data-tab="settings" class="${route.tab==="settings"?"active":""}">プロジェクト情報</button>
     <button data-action="tab" data-tab="conditions" class="${route.tab==="conditions"?"active":""}">条件・刺激</button>
     <button data-action="tab" data-tab="vas" class="${route.tab==="vas"?"active":""}">VAS項目</button>
@@ -447,7 +449,7 @@ function shuffle(values,seed){const r=rng(seed),out=[...values];for(let i=out.le
 
 function renderSessions(p){
   const sessions=db.sessions.filter(s=>s.project_id===p.project_id).sort((a,b)=>b.started_at.localeCompare(a.started_at));
-  app.innerHTML=`<div class="hero project-page-heading"><div><h1>実験・データ</h1></div></div><div class="actions" style="margin-bottom:18px"><button class="btn" data-action="start">実験を開始</button><button class="btn secondary" data-action="export">XLSX出力</button></div>
+  app.innerHTML=`<div class="actions" style="margin-bottom:18px"><button class="btn" data-action="start">実験開始</button><button class="btn secondary" data-action="export">XLSX出力</button></div>
   ${(!p.conditions.length||!p.vas_items.length||!p.patterns.length)?`<div class="notice">実験開始には、条件・VAS項目・パターンを各1件以上設定してください。</div>`:""}
   <section class="card"><h2>実施履歴</h2><div class="table-wrap"><table><thead><tr><th>被験者ID</th><th>セッションID</th><th>パターン</th><th>開始</th><th>完了</th><th></th></tr></thead><tbody>${sessions.length?sessions.map(s=>`<tr><td>${esc(s.subject_id)}</td><td>${esc(s.session_id)}</td><td>${esc(s.pattern_name)}</td><td>${fmt(s.started_at)}</td><td>${fmt(s.completed_at)}</td><td><button class="icon-button delete-icon-button table-icon-button" type="button" data-action="delete-session" data-id="${s.assignment_id}" aria-label="${esc(s.subject_id)} ${esc(s.session_id)}の実験データを削除" title="削除"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v5M14 11v5"></path></svg></button></td></tr>`).join(""):`<tr><td colspan="6" class="muted">まだ実験データがありません。</td></tr>`}</tbody></table></div></section>`;
 }
